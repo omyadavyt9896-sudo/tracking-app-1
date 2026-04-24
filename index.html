@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -62,8 +63,15 @@
     }
 
     @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.5;
+      }
     }
 
     .main-content {
@@ -373,6 +381,7 @@
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
+
 <body>
   <div class="container">
     <header>
@@ -399,10 +408,11 @@
       <!-- Submit Location Card -->
       <div class="card" id="submitCard">
         <h2>📍 Submit Location</h2>
-        
+
         <div class="ride-controls">
           <button class="ride-control-button start-ride-btn" onclick="startRide()">🚀 Start Ride</button>
-          <button class="ride-control-button stop-ride-btn hidden" id="stopRideBtn" onclick="stopRide()">🛑 Stop Ride</button>
+          <button class="ride-control-button stop-ride-btn hidden" id="stopRideBtn" onclick="stopRide()">🛑 Stop
+            Ride</button>
         </div>
 
         <div class="ride-info" id="rideInfo">
@@ -416,7 +426,7 @@
             <div id="qrCode"></div>
           </div>
         </div>
-        
+
         <h2 style="margin-top: 20px;">📍 Submit Location</h2>
         <div id="formInputs">
           <div class="form-group">
@@ -450,7 +460,8 @@
       <h2>📷 Camera Preview</h2>
       <div>
         <button id="startCameraBtn" onclick="startCamera()">Start Camera</button>
-        <video id="cameraFeed" autoplay playsinline style="width: 100%; border-radius: 8px; margin-top: 15px; display: none; background-color: #000;"></video>
+        <video id="cameraFeed" autoplay playsinline
+          style="width: 100%; border-radius: 8px; margin-top: 15px; display: none; background-color: #000;"></video>
       </div>
     </div>
 
@@ -458,7 +469,8 @@
     <div class="card">
       <h2>📋 Event Log</h2>
       <div class="log-container" id="logContainer">
-        <div class="log-entry"><span class="log-time">[LOG]</span> <span class="log-info">Client initialized. Connecting to server...</span></div>
+        <div class="log-entry"><span class="log-time">[LOG]</span> <span class="log-info">Client initialized. Connecting
+            to server...</span></div>
       </div>
     </div>
 
@@ -468,12 +480,49 @@
 
   <script>
     // Configuration
-  const SERVER_URL = 'https://tracking-backend-06i3.onrender.com';    
+    const SERVER_URL = 'https://tracking-backend-06i3.onrender.com';
     // State
     let vehicleLocations = {};
     let updateCount = 0;
     let isConnected = false;
     let trackedRideId = null;
+    let frameInterval = null;
+
+    // Frame Capture Logic
+    function startFrameCapture() {
+      if (frameInterval) return;
+      const video = document.getElementById('cameraFeed');
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+
+      frameInterval = setInterval(async () => {
+        if (!trackedRideId || !video.srcObject || video.style.display === 'none') return;
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        if (canvas.width === 0 || canvas.height === 0) return;
+
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const image = canvas.toDataURL('image/jpeg', 0.6);
+
+        try {
+          await fetch(`${SERVER_URL}/upload-frame`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rideId: trackedRideId, image })
+          });
+        } catch (err) {
+          console.error('Error uploading frame:', err);
+        }
+      }, 1000);
+    }
+
+    function stopFrameCapture() {
+      if (frameInterval) {
+        clearInterval(frameInterval);
+        frameInterval = null;
+      }
+    }
 
     // Get rideId from URL query parameter
     function getQueryParameter(param) {
@@ -497,70 +546,76 @@
 
     // Start a new ride
     function startRide() {
-        trackedRideId = "ride-001";
-      
+      trackedRideId = "ride-001";
+
       // Call backend to start ride
       fetch(`${SERVER_URL}/start-ride`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rideId: trackedRideId })
       })
-      .then(res => res.json())
-      .then(data => {
-        log(`✓ Ride started: ${trackedRideId}`, 'success');
-      })
-      .catch(err => log(`Error starting ride: ${err.message}`, 'error'));
-      
+        .then(res => res.json())
+        .then(data => {
+          log(`✓ Ride started: ${trackedRideId}`, 'success');
+        })
+        .catch(err => log(`Error starting ride: ${err.message}`, 'error'));
+
       // Update URL
       window.history.pushState({ rideId: trackedRideId }, '', `?rideId=${trackedRideId}`);
-      
+
       // Show tracking mode
       document.getElementById('trackingMode').classList.remove('hidden');
       document.getElementById('trackedVehicleId').textContent = trackedRideId;
       document.getElementById('formInputs').classList.add('hidden');
       document.getElementById('shareContainer').style.display = 'flex';
       document.getElementById('stopRideBtn').classList.remove('hidden');
-      
+
       // Show ride info
       document.getElementById('rideInfo').classList.add('show');
       document.getElementById('rideIdDisplay').textContent = trackedRideId;
-      
+
       // Generate QR code
       generateQRCode(trackedRideId);
+
+      // Start capturing frames if camera is active
+      startFrameCapture();
     }
 
     // Stop the current ride
     function stopRide() {
       const rideIdToStop = trackedRideId;
       trackedRideId = null;
-      
+
       // Call backend to stop ride
       fetch(`${SERVER_URL}/stop-ride`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rideId: rideIdToStop })
       })
-      .then(res => res.json())
-      .then(data => {
-        log(`✓ Ride stopped: ${rideIdToStop}`, 'success');
-      })
-      .catch(err => log(`Error stopping ride: ${err.message}`, 'error'));
-      
+        .then(res => res.json())
+        .then(data => {
+          log(`✓ Ride stopped: ${rideIdToStop}`, 'success');
+        })
+        .catch(err => log(`Error stopping ride: ${err.message}`, 'error'));
+
       // Clear URL
       window.history.pushState({}, '', window.location.pathname);
-      
+
       // Hide tracking mode
       document.getElementById('trackingMode').classList.add('hidden');
       document.getElementById('formInputs').classList.remove('hidden');
       document.getElementById('shareContainer').style.display = 'none';
       document.getElementById('stopRideBtn').classList.add('hidden');
-      
+
       // Hide ride info
       document.getElementById('rideInfo').classList.remove('show');
-      
+
       // Clear QR code
       document.getElementById('qrCode').innerHTML = '';
       document.getElementById('qrContainer').classList.remove('show');
+
+      // Stop capturing frames
+      stopFrameCapture();
     }
 
     // Generate QR code for tracking link
@@ -568,10 +623,10 @@
       const qrContainer = document.getElementById('qrCode');
       // Clear previous QR code
       qrContainer.innerHTML = '';
-      
+
       // Generate tracking link
       const trackingLink = `${window.location.origin}${window.location.pathname}?rideId=${rideId}`;
-      
+
       // Create QR code
       new QRCode(qrContainer, {
         text: trackingLink,
@@ -581,7 +636,7 @@
         colorLight: '#ffffff',
         correctLevel: QRCode.CorrectLevel.H
       });
-      
+
       // Show QR container
       document.getElementById('qrContainer').classList.add('show');
     }
@@ -589,7 +644,7 @@
     // Share tracking link
     async function shareTrackingLink() {
       const rideId = trackedRideId || document.getElementById('vehicleId').value.trim();
-      
+
       if (!rideId) {
         log('Enter a Ride ID to share', 'error');
         return;
@@ -597,16 +652,16 @@
 
       // Generate tracking link
       const trackingLink = `${window.location.origin}${window.location.pathname}?rideId=${rideId}`;
-      
+
       try {
         // Copy to clipboard
         await navigator.clipboard.writeText(trackingLink);
-        
+
         // Show feedback
         const feedback = document.getElementById('shareFeedback');
         feedback.classList.add('show');
         log(`Link copied: ${trackingLink}`, 'success');
-        
+
         // Hide feedback after 2 seconds
         setTimeout(() => {
           feedback.classList.remove('show');
@@ -620,7 +675,7 @@
     async function startCamera() {
       const videoElement = document.getElementById('cameraFeed');
       const startBtn = document.getElementById('startCameraBtn');
-      
+
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'environment' }
@@ -632,6 +687,11 @@
         startBtn.style.opacity = '0.6';
         startBtn.style.cursor = 'not-allowed';
         log('Camera started successfully', 'success');
+
+        // If a ride is already active, start capturing
+        if (trackedRideId) {
+          startFrameCapture();
+        }
       } catch (err) {
         log(`Error accessing camera: ${err.message}`, 'error');
         alert('Could not access camera. Please ensure you have granted camera permissions.');
@@ -793,9 +853,10 @@
 
     // Initialize stats
     updateStats();
-    
+
     // Initialize tracked vehicle mode
     initializeTrackedMode();
   </script>
 </body>
+
 </html>

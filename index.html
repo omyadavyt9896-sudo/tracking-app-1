@@ -315,6 +315,61 @@
     #qrCode canvas {
       display: block;
     }
+
+    .ride-controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    .ride-control-button {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: all 0.2s;
+      flex: 1;
+    }
+
+    .start-ride-btn {
+      background: #4caf50;
+      color: white;
+    }
+
+    .start-ride-btn:hover {
+      background: #45a049;
+    }
+
+    .stop-ride-btn {
+      background: #f44336;
+      color: white;
+    }
+
+    .stop-ride-btn:hover {
+      background: #da190b;
+    }
+
+    .ride-info {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 15px;
+      font-size: 12px;
+      display: none;
+    }
+
+    .ride-info.show {
+      display: block;
+    }
+
+    .ride-id-display {
+      font-weight: 600;
+      color: #ff6f00;
+      font-family: monospace;
+    }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
@@ -343,6 +398,17 @@
     <div class="main-content">
       <!-- Submit Location Card -->
       <div class="card" id="submitCard">
+        <h2>📍 Submit Location</h2>
+        
+        <div class="ride-controls">
+          <button class="ride-control-button start-ride-btn" onclick="startRide()">🚀 Start Ride</button>
+          <button class="ride-control-button stop-ride-btn hidden" id="stopRideBtn" onclick="stopRide()">🛑 Stop Ride</button>
+        </div>
+
+        <div class="ride-info" id="rideInfo">
+          🆔 Ride ID: <span class="ride-id-display" id="rideIdDisplay"></span>
+        </div>
+
         <div id="trackingMode" class="tracking-mode hidden">
           📍 Tracking: <span class="tracking-vehicle" id="trackedVehicleId"></span>
           <div class="qr-container" id="qrContainer">
@@ -350,11 +416,12 @@
             <div id="qrCode"></div>
           </div>
         </div>
-        <h2>📍 Submit Location</h2>
+        
+        <h2 style="margin-top: 20px;">📍 Submit Location</h2>
         <div id="formInputs">
           <div class="form-group">
-            <label for="vehicleId">Vehicle ID</label>
-            <input type="text" id="vehicleId" placeholder="e.g., vehicle-001" value="vehicle-001">
+            <label for="vehicleId">Ride ID</label>
+            <input type="text" id="vehicleId" placeholder="e.g., ride-001" value="vehicle-001">
           </div>
           <div class="form-group">
             <label for="latitude">Latitude</label>
@@ -397,35 +464,104 @@
     let vehicleLocations = {};
     let updateCount = 0;
     let isConnected = false;
-    let trackedVehicleId = null;
+    let trackedRideId = null;
 
-    // Get vehicleId from URL query parameter
+    // Get rideId from URL query parameter
     function getQueryParameter(param) {
       const urlParams = new URLSearchParams(window.location.search);
       return urlParams.get(param);
     }
 
-    // Initialize tracked vehicle mode if vehicleId is in URL
+    // Initialize tracked ride mode if rideId is in URL
     function initializeTrackedMode() {
-      trackedVehicleId = getQueryParameter('vehicleId');
-      if (trackedVehicleId) {
+      trackedRideId = getQueryParameter('rideId');
+      if (trackedRideId) {
         document.getElementById('trackingMode').classList.remove('hidden');
-        document.getElementById('trackedVehicleId').textContent = trackedVehicleId;
+        document.getElementById('trackedVehicleId').textContent = trackedRideId;
         document.getElementById('formInputs').classList.add('hidden');
         document.getElementById('shareContainer').style.display = 'flex';
-        generateQRCode(trackedVehicleId);
-        log(`Tracking mode: ${trackedVehicleId}`, 'success');
+        document.getElementById('stopRideBtn').classList.remove('hidden');
+        generateQRCode(trackedRideId);
+        log(`Tracking mode: ${trackedRideId}`, 'success');
       }
     }
 
+    // Start a new ride
+    function startRide() {
+        trackedRideId = "ride-001";
+      
+      // Call backend to start ride
+      fetch(`${SERVER_URL}/start-ride`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rideId: trackedRideId })
+      })
+      .then(res => res.json())
+      .then(data => {
+        log(`✓ Ride started: ${trackedRideId}`, 'success');
+      })
+      .catch(err => log(`Error starting ride: ${err.message}`, 'error'));
+      
+      // Update URL
+      window.history.pushState({ rideId: trackedRideId }, '', `?rideId=${trackedRideId}`);
+      
+      // Show tracking mode
+      document.getElementById('trackingMode').classList.remove('hidden');
+      document.getElementById('trackedVehicleId').textContent = trackedRideId;
+      document.getElementById('formInputs').classList.add('hidden');
+      document.getElementById('shareContainer').style.display = 'flex';
+      document.getElementById('stopRideBtn').classList.remove('hidden');
+      
+      // Show ride info
+      document.getElementById('rideInfo').classList.add('show');
+      document.getElementById('rideIdDisplay').textContent = trackedRideId;
+      
+      // Generate QR code
+      generateQRCode(trackedRideId);
+    }
+
+    // Stop the current ride
+    function stopRide() {
+      const rideIdToStop = trackedRideId;
+      trackedRideId = null;
+      
+      // Call backend to stop ride
+      fetch(`${SERVER_URL}/stop-ride`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rideId: rideIdToStop })
+      })
+      .then(res => res.json())
+      .then(data => {
+        log(`✓ Ride stopped: ${rideIdToStop}`, 'success');
+      })
+      .catch(err => log(`Error stopping ride: ${err.message}`, 'error'));
+      
+      // Clear URL
+      window.history.pushState({}, '', window.location.pathname);
+      
+      // Hide tracking mode
+      document.getElementById('trackingMode').classList.add('hidden');
+      document.getElementById('formInputs').classList.remove('hidden');
+      document.getElementById('shareContainer').style.display = 'none';
+      document.getElementById('stopRideBtn').classList.add('hidden');
+      
+      // Hide ride info
+      document.getElementById('rideInfo').classList.remove('show');
+      
+      // Clear QR code
+      document.getElementById('qrCode').innerHTML = '';
+      document.getElementById('qrContainer').classList.remove('show');
+    }
+
     // Generate QR code for tracking link
-    function generateQRCode(vehicleId) {
+    function generateQRCode(rideId) {
       const qrContainer = document.getElementById('qrCode');
       // Clear previous QR code
       qrContainer.innerHTML = '';
       
       // Generate tracking link
-      const trackingLink = `${window.location.origin}${window.location.pathname}?vehicleId=${vehicleId}`;
+      const trackingLink = `${window.location.origin}${window.location.pathname}?rideId=${rideId}`;
       
       // Create QR code
       new QRCode(qrContainer, {
@@ -443,15 +579,15 @@
 
     // Share tracking link
     async function shareTrackingLink() {
-      const vehicleId = trackedVehicleId || document.getElementById('vehicleId').value.trim();
+      const rideId = trackedRideId || document.getElementById('vehicleId').value.trim();
       
-      if (!vehicleId) {
-        log('Enter a Vehicle ID to share', 'error');
+      if (!rideId) {
+        log('Enter a Ride ID to share', 'error');
         return;
       }
 
       // Generate tracking link
-      const trackingLink = `${window.location.origin}${window.location.pathname}?vehicleId=${vehicleId}`;
+      const trackingLink = `${window.location.origin}${window.location.pathname}?rideId=${rideId}`;
       
       try {
         // Copy to clipboard
@@ -489,15 +625,15 @@
 
     socket.on('initialLocations', (locations) => {
       vehicleLocations = locations;
-      log(`Received initial locations for ${Object.keys(locations).length} vehicles`, 'info');
+      log(`Received initial locations for ${Object.keys(locations).length} rides`, 'info');
       updateLocationsList();
       updateStats();
     });
 
     socket.on('locationUpdate', (location) => {
-      vehicleLocations[location.vehicleId] = location;
+      vehicleLocations[location.rideId] = location;
       updateCount++;
-      log(`Location update: ${location.vehicleId} (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)})`, 'success');
+      log(`Location update: ${location.rideId} (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)})`, 'success');
       updateLocationsList();
       updateStats();
       document.getElementById('updateCount').textContent = `Updates received: ${updateCount}`;
@@ -509,12 +645,12 @@
 
     // Submit location via API
     async function submitLocation() {
-      const vehicleId = trackedVehicleId || document.getElementById('vehicleId').value.trim();
+      const rideId = trackedRideId || document.getElementById('vehicleId').value.trim();
       const lat = parseFloat(document.getElementById('latitude').value);
       const lng = parseFloat(document.getElementById('longitude').value);
 
-      if (!vehicleId) {
-        log('Vehicle ID is required', 'error');
+      if (!rideId) {
+        log('Ride ID is required', 'error');
         return;
       }
 
@@ -527,13 +663,14 @@
         const response = await fetch(`${SERVER_URL}/location`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ vehicleId, lat, lng })
+          body: JSON.stringify({ rideId, lat, lng })
         });
 
         if (response.ok) {
-          log(`Submitted location for ${vehicleId}`, 'success');
+          log(`Submitted location for ${rideId}`, 'success');
         } else {
-          log(`Error submitting location: ${response.statusText}`, 'error');
+          const error = await response.json();
+          log(`Error: ${error.error}`, 'error');
         }
       } catch (error) {
         log(`Error: ${error.message}`, 'error');
@@ -542,7 +679,7 @@
 
     // Submit a random location
     function randomLocation() {
-      const vehicleId = trackedVehicleId || document.getElementById('vehicleId').value.trim();
+      const rideId = trackedRideId || document.getElementById('vehicleId').value.trim();
       const lat = (40.7128 + (Math.random() - 0.5) * 0.1).toFixed(4);
       const lng = (-74.0060 + (Math.random() - 0.5) * 0.1).toFixed(4);
 
@@ -577,7 +714,7 @@
 
       container.innerHTML = locations.map(loc => `
         <div class="location-item">
-          <div class="location-id">🚗 ${loc.vehicleId}</div>
+          <div class="location-id">🚗 ${loc.rideId}</div>
           <div class="location-coords">Lat: ${loc.lat.toFixed(4)}, Lng: ${loc.lng.toFixed(4)}</div>
           <div class="location-timestamp">Updated: ${new Date(loc.timestamp).toLocaleTimeString()}</div>
         </div>

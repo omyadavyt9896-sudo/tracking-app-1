@@ -283,7 +283,40 @@
     .share-feedback.show {
       opacity: 1;
     }
+
+    .qr-container {
+      background: #f9f9f9;
+      border: 2px solid #2196f3;
+      border-radius: 8px;
+      padding: 20px;
+      margin-top: 15px;
+      text-align: center;
+      display: none;
+    }
+
+    .qr-container.show {
+      display: block;
+    }
+
+    .qr-label {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 10px;
+      font-weight: 600;
+    }
+
+    #qrCode {
+      display: inline-block;
+      padding: 10px;
+      background: white;
+      border-radius: 4px;
+    }
+
+    #qrCode canvas {
+      display: block;
+    }
   </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
   <div class="container">
@@ -312,6 +345,10 @@
       <div class="card" id="submitCard">
         <div id="trackingMode" class="tracking-mode hidden">
           📍 Tracking: <span class="tracking-vehicle" id="trackedVehicleId"></span>
+          <div class="qr-container" id="qrContainer">
+            <div class="qr-label">📱 Scan to Track</div>
+            <div id="qrCode"></div>
+          </div>
         </div>
         <h2>📍 Submit Location</h2>
         <div id="formInputs">
@@ -355,8 +392,7 @@
 
   <script>
     // Configuration
-    const SERVER_URL = "https://tracking-backend-06i3.onrender.com";
-    
+  const SERVER_URL = 'https://tracking-backend-06i3.onrender.com';    
     // State
     let vehicleLocations = {};
     let updateCount = 0;
@@ -377,8 +413,32 @@
         document.getElementById('trackedVehicleId').textContent = trackedVehicleId;
         document.getElementById('formInputs').classList.add('hidden');
         document.getElementById('shareContainer').style.display = 'flex';
+        generateQRCode(trackedVehicleId);
         log(`Tracking mode: ${trackedVehicleId}`, 'success');
       }
+    }
+
+    // Generate QR code for tracking link
+    function generateQRCode(vehicleId) {
+      const qrContainer = document.getElementById('qrCode');
+      // Clear previous QR code
+      qrContainer.innerHTML = '';
+      
+      // Generate tracking link
+      const trackingLink = `${window.location.origin}${window.location.pathname}?vehicleId=${vehicleId}`;
+      
+      // Create QR code
+      new QRCode(qrContainer, {
+        text: trackingLink,
+        width: 200,
+        height: 200,
+        colorDark: '#000000',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.H
+      });
+      
+      // Show QR container
+      document.getElementById('qrContainer').classList.add('show');
     }
 
     // Share tracking link

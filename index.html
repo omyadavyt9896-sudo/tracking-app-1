@@ -465,6 +465,16 @@
       </div>
     </div>
 
+    <!-- Live Camera Feed Card -->
+    <div class="card" style="margin-bottom: 20px;">
+      <h2>📺 Live Camera Feed</h2>
+      <div id="liveFeedContainer"
+        style="text-align: center; background: #000; border-radius: 8px; padding: 10px; min-height: 200px; display: flex; align-items: center; justify-content: center;">
+        <span id="liveFeedStatus" style="color: #999;">Waiting for camera...</span>
+        <img id="liveFeedImg" style="max-width: 100%; border-radius: 4px; display: none;" />
+      </div>
+    </div>
+
     <!-- Event Log -->
     <div class="card">
       <h2>📋 Event Log</h2>
@@ -487,6 +497,7 @@
     let isConnected = false;
     let trackedRideId = null;
     let frameInterval = null;
+    let fetchFrameInterval = null;
 
     // Frame Capture Logic
     function startFrameCapture() {
@@ -524,6 +535,52 @@
       }
     }
 
+    // Live Feed Fetch Logic
+    function startFrameFetch() {
+      if (fetchFrameInterval) return;
+      const img = document.getElementById('liveFeedImg');
+      const status = document.getElementById('liveFeedStatus');
+
+      fetchFrameInterval = setInterval(async () => {
+        if (!trackedRideId) return;
+
+        try {
+          const response = await fetch(`${SERVER_URL}/frame/${trackedRideId}`);
+          if (response.ok) {
+            const data = await response.json();
+            if (data.image) {
+              img.src = data.image;
+              img.style.display = 'block';
+              status.style.display = 'none';
+            }
+          } else {
+            img.style.display = 'none';
+            status.style.display = 'block';
+            status.textContent = 'Waiting for camera...';
+          }
+        } catch (err) {
+          // Silent catch to avoid console spam
+        }
+      }, 1000);
+    }
+
+    function stopFrameFetch() {
+      if (fetchFrameInterval) {
+        clearInterval(fetchFrameInterval);
+        fetchFrameInterval = null;
+      }
+      const img = document.getElementById('liveFeedImg');
+      const status = document.getElementById('liveFeedStatus');
+      if (img) {
+        img.style.display = 'none';
+        img.src = '';
+      }
+      if (status) {
+        status.style.display = 'block';
+        status.textContent = 'Waiting for camera...';
+      }
+    }
+
     // Get rideId from URL query parameter
     function getQueryParameter(param) {
       const urlParams = new URLSearchParams(window.location.search);
@@ -541,6 +598,7 @@
         document.getElementById('stopRideBtn').classList.remove('hidden');
         generateQRCode(trackedRideId);
         log(`Tracking mode: ${trackedRideId}`, 'success');
+        startFrameFetch();
       }
     }
 
@@ -579,6 +637,9 @@
 
       // Start capturing frames if camera is active
       startFrameCapture();
+
+      // Start fetching live feed
+      startFrameFetch();
     }
 
     // Stop the current ride
@@ -616,6 +677,9 @@
 
       // Stop capturing frames
       stopFrameCapture();
+
+      // Stop fetching live feed
+      stopFrameFetch();
     }
 
     // Generate QR code for tracking link

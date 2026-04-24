@@ -604,7 +604,7 @@
 
     // Start a new ride
     function startRide() {
-      trackedRideId = "ride-001";
+      trackedRideId = "ride-" + Date.now();
 
       // Call backend to start ride
       fetch(`${SERVER_URL}/start-ride`, {

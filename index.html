@@ -1026,25 +1026,40 @@ socket.on('locationUpdate', (location) => {
     }
 
     // Update locations list display
-    function updateLocationsList() {
-      const container = document.getElementById('locationsList');
-      const locations = Object.values(vehicleLocations);
+    // Update locations list display
+function updateLocationsList() {
+  const container = document.getElementById('locationsList');
+  const locations = Object.values(vehicleLocations);
 
-      if (locations.length === 0) {
-        container.innerHTML = '<div class="empty-message">No locations tracked yet</div>';
-        return;
-      }
+  if (locations.length === 0) {
+    container.innerHTML = '<div class="empty-message">No locations tracked yet</div>';
+    return;
+  }
 
-      container.innerHTML = locations.map(loc => `
-        <div class="location-item">
-          <div class="location-id">🚗 ${loc.rideId}</div>
-          <div class="location-coords">Lat: ${loc.lat.toFixed(4)}, Lng: ${loc.lng.toFixed(4)}</div>
-          <div class="location-timestamp">Updated: ${new Date(loc.timestamp).toLocaleTimeString()}</div>
+  container.innerHTML = locations.map(loc => {
+
+    // 🔥 CALCULATE TIME DIFFERENCE
+    const secondsAgo = Math.floor((Date.now() - new Date(loc.timestamp)) / 1000);
+
+    // 🔥 STATUS LOGIC
+    let status = "🟢 Live";
+    if (secondsAgo > 10) status = "🟡 Stationary";
+
+    return `
+      <div class="location-item">
+        <div class="location-id">🚗 ${loc.rideId}</div>
+        <div class="location-coords">
+          Lat: ${loc.lat.toFixed(4)}, Lng: ${loc.lng.toFixed(4)}
         </div>
-      `).join('');
+        <div class="location-timestamp">
+          ${status} • Updated ${secondsAgo} sec ago
+        </div>
+      </div>
+    `;
+  }).join('');
 
-      document.getElementById('vehicleCount').textContent = `Vehicles tracked: ${locations.length}`;
-    }
+  document.getElementById('vehicleCount').textContent = `Vehicles tracked: ${locations.length}`;
+}
 
     // Update statistics
     function updateStats() {

@@ -931,17 +931,26 @@
 
       viewerPeerConnection = new RTCPeerConnection(ICE_SERVERS);
 
-      viewerPeerConnection.ontrack = (event) => {
-        const video = document.getElementById('liveFeedVideo');
-        if (video) {
-          video.srcObject = event.streams[0];
-          video.style.display = 'block';
-          document.getElementById('liveFeedImg').style.display = 'none';
-          document.getElementById('liveFeedStatus').style.display = 'none';
-          log('WebRTC Stream connected!', 'success');
-          stopFrameFetch(); // Stop fallback conflict
-        }
-      };
+viewerPeerConnection.ontrack = (event) => {
+  const video = document.getElementById('liveFeedVideo');
+  const status = document.getElementById('liveFeedStatus');
+
+  // 🔥 FIX: Create stream manually
+  if (!video.srcObject) {
+    video.srcObject = new MediaStream();
+  }
+
+  video.srcObject.addTrack(event.track);
+
+  video.style.display = 'block';
+  status.style.display = 'none';
+
+  video.play().catch(() => {
+    log("Tap screen to enable video", "error");
+  });
+
+  log("📺 WebRTC stream connected!", "success");
+};
 
       viewerPeerConnection.onicecandidate = (event) => {
         if (event.candidate) {

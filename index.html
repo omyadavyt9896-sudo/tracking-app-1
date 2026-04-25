@@ -491,6 +491,8 @@
     let localStream = null;
     const peerConnections = {};
     let viewerPeerConnection = null;
+    const iceCandidateQueues = {};
+    let viewerIceCandidateQueue = [];
 
     const ICE_SERVERS = {
       iceServers: [
@@ -543,7 +545,7 @@
         if (canvas.width === 0 || canvas.height === 0) return;
 
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const image = canvas.toDataURL('image/jpeg', 0.3);
+        const image = canvas.toDataURL('image/jpeg', 0.2); // Reduced quality for faster upload
 
         try {
           await fetch(`${SERVER_URL}/upload-frame`, {
@@ -554,7 +556,7 @@
         } catch (err) {
           console.error('Error uploading frame:', err);
         }
-      }, 1500);
+      }, 400); // 400ms = 2.5 frames per second
     }
 
     function stopFrameCapture() {
@@ -594,7 +596,7 @@
         } catch (err) {
           // Silent catch to avoid console spam
         }
-      }, 1500);
+      }, 400); // match 400ms interval
     }
 
     function stopFrameFetch() {
@@ -944,6 +946,7 @@
       if (viewerPeerConnection) {
         viewerPeerConnection.close();
       }
+      viewerIceCandidateQueue = [];
 
       viewerPeerConnection = new RTCPeerConnection(ICE_SERVERS);
 
@@ -1003,12 +1006,20 @@
 
       try {
         await viewerPeerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+
+        // Process queued early ICE candidates
+        viewerIceCandidateQueue.forEach(async candidate => {
+          try { await viewerPeerConnection.addIceCandidate(candidate); } catch (err) { }
+        });
+        viewerIceCandidateQueue = [];
+
         const answer = await viewerPeerConnection.createAnswer();
         await viewerPeerConnection.setLocalDescription(answer);
 
         socket.emit('webrtc-answer', {
           answer: answer,
-          to: data.to
+          to: data.from,
+          from: socket.id
         });
       } catch (err) {
         log('WebRTC viewer error: ' + err.message, 'error');
@@ -1017,10 +1028,17 @@
 
     socket.on('webrtc-answer', async (data) => {
       if (isViewer || !trackedRideId) return;
-      const pc = peerConnections[data.to];
+      const pc = peerConnections[data.from];
       if (pc) {
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+
+          if (iceCandidateQueues[data.from]) {
+            iceCandidateQueues[data.from].forEach(async c => {
+              try { await pc.addIceCandidate(c); } catch (err) { }
+            });
+            iceCandidateQueues[data.from] = [];
+          }
         } catch (e) {
           log('WebRTC driver answer error: ' + e.message, 'error');
         }
@@ -1028,12 +1046,21 @@
     });
 
     socket.on('webrtc-ice-candidate', async (data) => {
-      const pc = isViewer ? viewerPeerConnection : peerConnections[data.to];
-      if (pc && data.candidate) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-        } catch (e) {
-          // ignore
+      if (isViewer) {
+        if (!viewerPeerConnection || !viewerPeerConnection.remoteDescription) {
+          viewerIceCandidateQueue.push(new RTCIceCandidate(data.candidate));
+        } else {
+          try { await viewerPeerConnection.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch (e) { }
+        }
+      } else {
+        const pc = peerConnections[data.from];
+        if (pc) {
+          if (!pc.remoteDescription) {
+            if (!iceCandidateQueues[data.from]) iceCandidateQueues[data.from] = [];
+            iceCandidateQueues[data.from].push(new RTCIceCandidate(data.candidate));
+          } else {
+            try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch (e) { }
+          }
         }
       }
     });

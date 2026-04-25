@@ -895,7 +895,7 @@ socket.on('locationUpdate', (location) => {
     });
 
     // Start real GPS tracking
-    function startGPS() {
+   function startGPS() {
   if (gpsWatchId) return;
 
   if (!navigator.geolocation) {
@@ -907,6 +907,38 @@ socket.on('locationUpdate', (location) => {
   let lastLng = null;
   let lastSentTime = 0;
 
+  // 🔥 STEP 1: SEND FIRST LOCATION INSTANTLY
+  navigator.geolocation.getCurrentPosition(
+    async (position) => {
+      if (!trackedRideId) return;
+
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+
+      try {
+        await fetch(`${SERVER_URL}/location`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rideId: trackedRideId, lat, lng })
+        });
+
+        log("📍 First location sent instantly", "success");
+
+        // 🔥 Important: set initial values
+        lastLat = lat;
+        lastLng = lng;
+        lastSentTime = Date.now();
+
+      } catch (err) {
+        log(`Error sending first location: ${err.message}`, 'error');
+      }
+    },
+    (error) => {
+      log(`Initial GPS error: ${error.message}`, 'error');
+    }
+  );
+
+  // 🔥 STEP 2: CONTINUOUS TRACKING (your existing code)
   gpsWatchId = navigator.geolocation.watchPosition(
     async (position) => {
       if (!trackedRideId) return;
@@ -915,7 +947,7 @@ socket.on('locationUpdate', (location) => {
       const lng = position.coords.longitude;
       const now = Date.now();
 
-      // 🔥 Skip if location change is too small
+      // Skip small movement
       if (
         lastLat &&
         Math.abs(lat - lastLat) < 0.0001 &&
@@ -924,7 +956,7 @@ socket.on('locationUpdate', (location) => {
         return;
       }
 
-      // 🔥 Throttle: max 1 request every 3 seconds
+      // Throttle
       if (now - lastSentTime < 3000) return;
 
       lastLat = lat;
@@ -971,7 +1003,6 @@ socket.on('locationUpdate', (location) => {
 
   log('📍 GPS tracking started (optimized)', 'success');
 }
-
     function stopGPS() {
       if (gpsWatchId) {
         navigator.geolocation.clearWatch(gpsWatchId);

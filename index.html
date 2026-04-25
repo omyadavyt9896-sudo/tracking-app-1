@@ -948,13 +948,15 @@
         const video = document.getElementById('liveFeedVideo');
         if (!video) return;
 
-        // 🔥 FIX 1: Create MediaStream manually for better mobile support
-        if (!video.srcObject) {
-          video.srcObject = new MediaStream();
+        // Better mobile support: prefer event.streams[0] if provided
+        if (event.streams && event.streams[0]) {
+          video.srcObject = event.streams[0];
+        } else {
+          if (!video.srcObject) {
+            video.srcObject = new MediaStream();
+          }
+          video.srcObject.addTrack(event.track);
         }
-
-        // 🔥 FIX 2: Add track to stream manually
-        video.srcObject.addTrack(event.track);
 
         // 🔥 FIX 3: Ensure video element properties
         video.muted = true;
@@ -968,10 +970,12 @@
         document.getElementById('liveFeedImg').style.display = 'none';
         document.getElementById('liveFeedStatus').style.display = 'none';
 
-        // 🔥 FIX 6: Safe play() for mobile
-        video.play().catch(err => {
-          console.log('Video play pending user interaction:', err.message);
-        });
+        // Wait until metadata is loaded to play
+        video.onloadedmetadata = () => {
+          video.play().catch(err => {
+            console.log('Video play pending user interaction:', err.message);
+          });
+        };
 
         log('WebRTC Stream connected!', 'success');
       };

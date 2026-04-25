@@ -917,7 +917,7 @@
 });
 
     socket.on('webrtc-offer', async (data) => {
-      if (!isViewer || data.rideId !== trackedRideId) return;
+      if (!isViewer ) return;
 
       // Clean up existing connection
       if (viewerPeerConnection) {

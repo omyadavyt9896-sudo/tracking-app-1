@@ -596,7 +596,7 @@
     function initializeModes() {
   if (isViewer) {
 
-    // ❌ Safety check
+    // Safety check
     if (!urlRideId) {
       log("Invalid ride link", "error");
       alert("Invalid tracking link");
@@ -608,18 +608,22 @@
     // Hide ALL driver UI
     document.getElementById('driverControlCard').style.display = 'none';
     document.getElementById('cameraPreviewCard').style.display = 'none';
+
+    // ❌ FIX: hide share button in viewer mode
     document.getElementById('shareContainer').style.display = 'none';
 
     log(`👀 Viewer mode: following ${trackedRideId}`, 'info');
 
-    // ✅ Fetch existing locations immediately
+    // Fetch only this ride
     fetch(`${SERVER_URL}/locations`)
       .then(res => res.json())
       .then(data => {
         vehicleLocations = {};
-  if (data[trackedRideId]) {
-    vehicleLocations[trackedRideId] = data[trackedRideId];
-  }
+
+        if (data[trackedRideId]) {
+          vehicleLocations[trackedRideId] = data[trackedRideId];
+        }
+
         updateLocationsList();
         updateStats();
       })
@@ -627,13 +631,16 @@
         log(`Error loading initial data: ${err.message}`, 'error');
       });
 
-    // ✅ Start live updates
     startFrameFetch();
 
   } else {
+
     // Driver Mode
     document.getElementById('driverControlCard').style.display = 'block';
     document.getElementById('cameraPreviewCard').style.display = 'block';
+
+    // ✅ Show share only for driver
+    document.getElementById('shareContainer').style.display = 'flex';
 
     log("🚗 Driver mode ready", "info");
   }
@@ -846,21 +853,32 @@
     });
 
     socket.on('initialLocations', (locations) => {
-      vehicleLocations = locations;
-      log(`Received initial locations for ${Object.keys(locations).length} rides`, 'info');
-      updateLocationsList();
-      updateStats();
-    });
 
-    socket.on('locationUpdate', (location) => {
+  // 🔥 FILTER FOR VIEWER
+  if (isViewer) {
+    vehicleLocations = {};
 
-  // 🔥 Filter for viewer
+    if (locations[trackedRideId]) {
+      vehicleLocations[trackedRideId] = locations[trackedRideId];
+    }
+  } else {
+    vehicleLocations = locations;
+  }
+
+  log(`Received initial locations`, 'info');
+  updateLocationsList();
+  updateStats();
+});
+
+   socket.on('locationUpdate', (location) => {
+
+  // 🔥 CRITICAL FILTER
   if (isViewer && location.rideId !== trackedRideId) return;
 
   vehicleLocations[location.rideId] = location;
 
   updateCount++;
-  log(`Location update: ${location.rideId}`, 'success');
+
   showLiveIndicator();
   updateLocationsList();
   updateStats();

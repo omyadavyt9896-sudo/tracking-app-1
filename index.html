@@ -1004,7 +1004,7 @@
 
     socket.on('webrtc-answer', async (data) => {
       if (isViewer || !trackedRideId) return;
-      const pc = peerConnections[data.from];
+      const pc = peerConnections[data.to];
       if (pc) {
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
@@ -1015,7 +1015,7 @@
     });
 
     socket.on('webrtc-ice-candidate', async (data) => {
-      const pc = isViewer ? viewerPeerConnection : peerConnections[data.from];
+      const pc = isViewer ? viewerPeerConnection : peerConnections[data.to];
       if (pc && data.candidate) {
         try {
           await pc.addIceCandidate(new RTCIceCandidate(data.candidate));

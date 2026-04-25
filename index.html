@@ -392,6 +392,9 @@
           <span id="connectionText">Disconnected</span>
         </div>
         <div class="status-item">
+          <span id="liveIndicator"
+            style="color: #f44336; font-weight: bold; border-radius: 4px; padding: 2px 6px; background: #ffebee; display: none;">●
+            LIVE</span>
           <span id="vehicleCount">Vehicles tracked: 0</span>
         </div>
         <div class="status-item">
@@ -406,11 +409,12 @@
 
     <div class="main-content">
       <!-- Submit Location Card -->
-      <div class="card" id="submitCard">
-        <h2>📍 Submit Location</h2>
+      <div class="card" id="driverControlCard">
+        <h2>🛠️ Ride Controls</h2>
 
         <div class="ride-controls">
-          <button class="ride-control-button start-ride-btn" onclick="startRide()">🚀 Start Ride</button>
+          <button class="ride-control-button start-ride-btn" id="startRideBtn" onclick="startRide()">🚀 Start
+            Ride</button>
           <button class="ride-control-button stop-ride-btn hidden" id="stopRideBtn" onclick="stopRide()">🛑 Stop
             Ride</button>
         </div>
@@ -426,24 +430,6 @@
             <div id="qrCode"></div>
           </div>
         </div>
-
-        <h2 style="margin-top: 20px;">📍 Submit Location</h2>
-        <div id="formInputs">
-          <div class="form-group">
-            <label for="vehicleId">Ride ID</label>
-            <input type="text" id="vehicleId" placeholder="e.g., ride-001" value="ride-001">
-          </div>
-          <div class="form-group">
-            <label for="latitude">Latitude</label>
-            <input type="number" id="latitude" placeholder="40.7128" step="0.0001" value="40.7128">
-          </div>
-          <div class="form-group">
-            <label for="longitude">Longitude</label>
-            <input type="number" id="longitude" placeholder="-74.0060" step="0.0001" value="-74.0060">
-          </div>
-          <button onclick="submitLocation()">Submit Location</button>
-          <button onclick="randomLocation()" style="margin-top: 10px;">Random Location</button>
-        </div>
       </div>
 
       <!-- Live Locations Card -->
@@ -456,7 +442,7 @@
     </div>
 
     <!-- Camera Preview Card -->
-    <div class="card" style="margin-bottom: 20px;">
+    <div class="card" id="cameraPreviewCard" style="margin-bottom: 20px;">
       <h2>📷 Camera Preview</h2>
       <div>
         <button id="startCameraBtn" onclick="startCamera()">Start Camera</button>
@@ -498,10 +484,31 @@
     let trackedRideId = null;
     let frameInterval = null;
     let fetchFrameInterval = null;
+    let gpsWatchId = null;
+    let liveIndicatorTimeout = null;
+
+    function showLiveIndicator() {
+      const indicator = document.getElementById('liveIndicator');
+      if (indicator) {
+        indicator.style.display = 'inline-block';
+        clearTimeout(liveIndicatorTimeout);
+        liveIndicatorTimeout = setTimeout(() => {
+          indicator.style.display = 'none';
+        }, 3000);
+      }
+    }
+
+    // Detect Viewer Mode
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlRideId = urlParams.get('rideId');
+    const isViewer = !!urlRideId;
 
     // Frame Capture Logic
     function startFrameCapture() {
-      if (frameInterval) return;
+      if (frameInterval) {
+        clearInterval(frameInterval);
+        frameInterval = null;
+      }
       const video = document.getElementById('cameraFeed');
       const canvas = document.createElement('canvas');
       const context = canvas.getContext('2d');
@@ -514,7 +521,7 @@
         if (canvas.width === 0 || canvas.height === 0) return;
 
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const image = canvas.toDataURL('image/jpeg', 0.6);
+        const image = canvas.toDataURL('image/jpeg', 0.3);
 
         try {
           await fetch(`${SERVER_URL}/upload-frame`, {
@@ -525,7 +532,7 @@
         } catch (err) {
           console.error('Error uploading frame:', err);
         }
-      }, 1000);
+      }, 1500);
     }
 
     function stopFrameCapture() {
@@ -537,7 +544,10 @@
 
     // Live Feed Fetch Logic
     function startFrameFetch() {
-      if (fetchFrameInterval) return;
+      if (fetchFrameInterval) {
+        clearInterval(fetchFrameInterval);
+        fetchFrameInterval = null;
+      }
       const img = document.getElementById('liveFeedImg');
       const status = document.getElementById('liveFeedStatus');
 
@@ -551,6 +561,7 @@
             if (data.image) {
               img.src = data.image;
               img.style.display = 'block';
+              showLiveIndicator();
               status.style.display = 'none';
             }
           } else {
@@ -561,7 +572,7 @@
         } catch (err) {
           // Silent catch to avoid console spam
         }
-      }, 1000);
+      }, 1500);
     }
 
     function stopFrameFetch() {
@@ -581,68 +592,98 @@
       }
     }
 
-    // Get rideId from URL query parameter
-    function getQueryParameter(param) {
-      const urlParams = new URLSearchParams(window.location.search);
-      return urlParams.get(param);
+    // Initialize modes based on whether it is a viewer or a driver
+    function initializeModes() {
+  if (isViewer) {
+
+    // ❌ Safety check
+    if (!urlRideId) {
+      log("Invalid ride link", "error");
+      alert("Invalid tracking link");
+      return;
     }
 
-    // Initialize tracked ride mode if rideId is in URL
-    function initializeTrackedMode() {
-      trackedRideId = getQueryParameter('rideId');
-      if (trackedRideId) {
-        document.getElementById('trackingMode').classList.remove('hidden');
-        document.getElementById('trackedVehicleId').textContent = trackedRideId;
-        document.getElementById('formInputs').classList.add('hidden');
-        document.getElementById('shareContainer').style.display = 'flex';
-        document.getElementById('stopRideBtn').classList.remove('hidden');
-        generateQRCode(trackedRideId);
-        log(`Tracking mode: ${trackedRideId}`, 'success');
-        startFrameFetch();
-      }
-    }
+    trackedRideId = urlRideId;
+
+    // Hide ALL driver UI
+    document.getElementById('driverControlCard').style.display = 'none';
+    document.getElementById('cameraPreviewCard').style.display = 'none';
+    document.getElementById('shareContainer').style.display = 'none';
+
+    log(`👀 Viewer mode: following ${trackedRideId}`, 'info');
+
+    // ✅ Fetch existing locations immediately
+    fetch(`${SERVER_URL}/locations`)
+      .then(res => res.json())
+      .then(data => {
+        vehicleLocations = {};
+  if (data[trackedRideId]) {
+    vehicleLocations[trackedRideId] = data[trackedRideId];
+  }
+        updateLocationsList();
+        updateStats();
+      })
+      .catch(err => {
+        log(`Error loading initial data: ${err.message}`, 'error');
+      });
+
+    // ✅ Start live updates
+    startFrameFetch();
+
+  } else {
+    // Driver Mode
+    document.getElementById('driverControlCard').style.display = 'block';
+    document.getElementById('cameraPreviewCard').style.display = 'block';
+
+    log("🚗 Driver mode ready", "info");
+  }
+}
     // Start a new ride
     async function startRide() {
-  trackedRideId = "ride-" + Date.now();
-  try {
-    const res = await fetch(`${SERVER_URL}/start-ride`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rideId: trackedRideId })
-    });
+      trackedRideId = "ride-" + Date.now();
 
-    const data = await res.json();
+      try {
+        const res = await fetch(`${SERVER_URL}/start-ride`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rideId: trackedRideId })
+        });
 
-    if (!res.ok) {
-      throw new Error(data.error || "Failed to start ride");
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to start ride");
+        }
+
+        // ✅ ONLY after backend success
+        log(`✓ Ride started: ${trackedRideId}`, 'success');
+
+      } catch (err) {
+        log(`❌ Start Ride failed: ${err.message}`, 'error');
+        return; // STOP everything if backend fails
+      }
+
+      // ✅ NOW update UI (safe)
+      window.history.pushState({ rideId: trackedRideId }, '', `?rideId=${trackedRideId}`);
+
+      document.getElementById('trackingMode').classList.remove('hidden');
+      document.getElementById('trackedVehicleId').textContent = trackedRideId;
+      document.getElementById('shareContainer').style.display = 'flex';
+      document.getElementById('startRideBtn').classList.add('hidden');
+      document.getElementById('stopRideBtn').classList.remove('hidden');
+
+      document.getElementById('rideInfo').classList.add('show');
+      document.getElementById('rideIdDisplay').textContent = trackedRideId;
+
+      generateQRCode(trackedRideId);
+
+      // Automatically start camera if not started
+      await startCamera();
+      // start systems AFTER ride is active
+      startFrameCapture();
+      startGPS();
+      startFrameFetch();
     }
-
-    // ✅ ONLY after backend success
-    log(`✓ Ride started: ${trackedRideId}`, 'success');
-
-  } catch (err) {
-    log(`❌ Start Ride failed: ${err.message}`, 'error');
-    return; // STOP everything if backend fails
-  }
-
-  // ✅ NOW update UI (safe)
-  window.history.pushState({ rideId: trackedRideId }, '', `?rideId=${trackedRideId}`);
-
-  document.getElementById('trackingMode').classList.remove('hidden');
-  document.getElementById('trackedVehicleId').textContent = trackedRideId;
-  document.getElementById('formInputs').classList.add('hidden');
-  document.getElementById('shareContainer').style.display = 'flex';
-  document.getElementById('stopRideBtn').classList.remove('hidden');
-
-  document.getElementById('rideInfo').classList.add('show');
-  document.getElementById('rideIdDisplay').textContent = trackedRideId;
-
-  generateQRCode(trackedRideId);
-
-  // start systems AFTER ride is active
-  startFrameCapture();
-  startFrameFetch();
-}
 
     // Stop the current ride
     function stopRide() {
@@ -666,10 +707,10 @@
 
       // Hide tracking mode
       document.getElementById('trackingMode').classList.add('hidden');
-      document.getElementById('formInputs').classList.remove('hidden');
       document.getElementById('shareContainer').style.display = 'none';
+      document.getElementById('startRideBtn').classList.remove('hidden');
       document.getElementById('stopRideBtn').classList.add('hidden');
-
+      document.getElementById('liveIndicator').style.display = 'none';
       // Hide ride info
       document.getElementById('rideInfo').classList.remove('show');
 
@@ -680,8 +721,14 @@
       // Stop capturing frames
       stopFrameCapture();
 
+      // Stop GPS tracing
+      stopGPS();
+
       // Stop fetching live feed
       stopFrameFetch();
+
+      // Cleanly stop local camera to reset UI
+      stopCamera();
     }
 
     // Generate QR code for tracking link
@@ -709,7 +756,7 @@
 
     // Share tracking link
     async function shareTrackingLink() {
-      const rideId = trackedRideId || document.getElementById('vehicleId').value.trim();
+      const rideId = trackedRideId;
 
       if (!rideId) {
         log('Enter a Ride ID to share', 'error');
@@ -764,6 +811,24 @@
       }
     }
 
+    function stopCamera() {
+      const videoElement = document.getElementById('cameraFeed');
+      const startBtn = document.getElementById('startCameraBtn');
+      if (videoElement && videoElement.srcObject) {
+        videoElement.srcObject.getTracks().forEach(track => track.stop());
+        videoElement.srcObject = null;
+      }
+      if (videoElement) {
+        videoElement.style.display = 'none';
+      }
+      if (startBtn) {
+        startBtn.textContent = 'Start Camera';
+        startBtn.disabled = false;
+        startBtn.style.opacity = '1';
+        startBtn.style.cursor = 'pointer';
+      }
+    }
+
     // Initialize Socket.io connection
     const socket = io(SERVER_URL);
 
@@ -788,61 +853,110 @@
     });
 
     socket.on('locationUpdate', (location) => {
-      vehicleLocations[location.rideId] = location;
-      updateCount++;
-      log(`Location update: ${location.rideId} (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)})`, 'success');
-      updateLocationsList();
-      updateStats();
-      document.getElementById('updateCount').textContent = `Updates received: ${updateCount}`;
-    });
+
+  // 🔥 Filter for viewer
+  if (isViewer && location.rideId !== trackedRideId) return;
+
+  vehicleLocations[location.rideId] = location;
+
+  updateCount++;
+  log(`Location update: ${location.rideId}`, 'success');
+  showLiveIndicator();
+  updateLocationsList();
+  updateStats();
+
+  document.getElementById('updateCount').textContent =
+    `Updates received: ${updateCount}`;
+});
 
     socket.on('error', (error) => {
       log(`Socket error: ${error}`, 'error');
     });
 
-    // Submit location via API
-    async function submitLocation() {
-      const rideId = trackedRideId || document.getElementById('vehicleId').value.trim();
-      const lat = parseFloat(document.getElementById('latitude').value);
-      const lng = parseFloat(document.getElementById('longitude').value);
+    // Start real GPS tracking
+    function startGPS() {
+  if (gpsWatchId) return;
 
-      if (!rideId) {
-        log('Ride ID is required', 'error');
+  if (!navigator.geolocation) {
+    log('Geolocation not supported', 'error');
+    return;
+  }
+
+  let lastLat = null;
+  let lastLng = null;
+  let lastSentTime = 0;
+
+  gpsWatchId = navigator.geolocation.watchPosition(
+    async (position) => {
+      if (!trackedRideId) return;
+
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+      const now = Date.now();
+
+      // 🔥 Skip if location change is too small
+      if (
+        lastLat &&
+        Math.abs(lat - lastLat) < 0.0001 &&
+        Math.abs(lng - lastLng) < 0.0001
+      ) {
         return;
       }
 
-      if (isNaN(lat) || isNaN(lng)) {
-        log('Latitude and Longitude must be numbers', 'error');
-        return;
-      }
+      // 🔥 Throttle: max 1 request every 3 seconds
+      if (now - lastSentTime < 3000) return;
+
+      lastLat = lat;
+      lastLng = lng;
+      lastSentTime = now;
 
       try {
-        const response = await fetch(`${SERVER_URL}/location`, {
+        await fetch(`${SERVER_URL}/location`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rideId, lat, lng })
+          body: JSON.stringify({ rideId: trackedRideId, lat, lng })
         });
 
-        if (response.ok) {
-          log(`Submitted location for ${rideId}`, 'success');
-        } else {
-          const error = await response.json();
-          log(`Error: ${error.error}`, 'error');
-        }
-      } catch (error) {
-        log(`Error: ${error.message}`, 'error');
+      } catch (err) {
+        log(`Error sending location: ${err.message}`, 'error');
       }
+    },
+
+    (error) => {
+      let message = "Location error";
+
+      switch (error.code) {
+        case error.PERMISSION_DENIED:
+          message = "❌ Location permission denied";
+          alert("Please allow location access to start tracking");
+          break;
+        case error.POSITION_UNAVAILABLE:
+          message = "❌ Location unavailable";
+          break;
+        case error.TIMEOUT:
+          message = "❌ Location request timeout";
+          break;
+      }
+
+      log(message, 'error');
+    },
+
+    {
+      enableHighAccuracy: true,
+      maximumAge: 5000,
+      timeout: 10000
     }
+  );
 
-    // Submit a random location
-    function randomLocation() {
-      const rideId = trackedRideId || document.getElementById('vehicleId').value.trim();
-      const lat = (40.7128 + (Math.random() - 0.5) * 0.1).toFixed(4);
-      const lng = (-74.0060 + (Math.random() - 0.5) * 0.1).toFixed(4);
+  log('📍 GPS tracking started (optimized)', 'success');
+}
 
-      document.getElementById('latitude').value = lat;
-      document.getElementById('longitude').value = lng;
-      submitLocation();
+    function stopGPS() {
+      if (gpsWatchId) {
+        navigator.geolocation.clearWatch(gpsWatchId);
+        gpsWatchId = null;
+        log('GPS tracking stopped', 'info');
+      }
     }
 
     // Update connection status indicator
@@ -920,8 +1034,8 @@
     // Initialize stats
     updateStats();
 
-    // Initialize tracked vehicle mode
-    initializeTrackedMode();
+    // Initialize modes based on whether it is a viewer or a driver
+    initializeModes();
   </script>
 </body>
 

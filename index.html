@@ -514,7 +514,7 @@
         if (canvas.width === 0 || canvas.height === 0) return;
 
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const image = canvas.toDataURL('image/jpeg', 0.3);
+        const image = canvas.toDataURL('image/jpeg', 0.6);
 
         try {
           await fetch(`${SERVER_URL}/upload-frame`, {
@@ -561,7 +561,7 @@
         } catch (err) {
           // Silent catch to avoid console spam
         }
-      }, 1500);
+      }, 1000);
     }
 
     function stopFrameFetch() {
@@ -601,46 +601,49 @@
         startFrameFetch();
       }
     }
-
     // Start a new ride
-    function startRide() {
-      trackedRideId = "ride-" ;
+    async function startRide() {
+  trackedRideId = "ride-001";
 
-      // Call backend to start ride
-      fetch(`${SERVER_URL}/start-ride`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rideId: trackedRideId })
-      })
-        .then(res => res.json())
-        .then(data => {
-          log(`✓ Ride started: ${trackedRideId}`, 'success');
-        })
-        .catch(err => log(`Error starting ride: ${err.message}`, 'error'));
+  try {
+    const res = await fetch(`${SERVER_URL}/start-ride`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rideId: trackedRideId })
+    });
 
-      // Update URL
-      window.history.pushState({ rideId: trackedRideId }, '', `?rideId=${trackedRideId}`);
+    const data = await res.json();
 
-      // Show tracking mode
-      document.getElementById('trackingMode').classList.remove('hidden');
-      document.getElementById('trackedVehicleId').textContent = trackedRideId;
-      document.getElementById('formInputs').classList.add('hidden');
-      document.getElementById('shareContainer').style.display = 'flex';
-      document.getElementById('stopRideBtn').classList.remove('hidden');
-
-      // Show ride info
-      document.getElementById('rideInfo').classList.add('show');
-      document.getElementById('rideIdDisplay').textContent = trackedRideId;
-
-      // Generate QR code
-      generateQRCode(trackedRideId);
-
-      // Start capturing frames if camera is active
-      startFrameCapture();
-
-      // Start fetching live feed
-      startFrameFetch();
+    if (!res.ok) {
+      throw new Error(data.error || "Failed to start ride");
     }
+
+    // ✅ ONLY after backend success
+    log(`✓ Ride started: ${trackedRideId}`, 'success');
+
+  } catch (err) {
+    log(`❌ Start Ride failed: ${err.message}`, 'error');
+    return; // STOP everything if backend fails
+  }
+
+  // ✅ NOW update UI (safe)
+  window.history.pushState({ rideId: trackedRideId }, '', `?rideId=${trackedRideId}`);
+
+  document.getElementById('trackingMode').classList.remove('hidden');
+  document.getElementById('trackedVehicleId').textContent = trackedRideId;
+  document.getElementById('formInputs').classList.add('hidden');
+  document.getElementById('shareContainer').style.display = 'flex';
+  document.getElementById('stopRideBtn').classList.remove('hidden');
+
+  document.getElementById('rideInfo').classList.add('show');
+  document.getElementById('rideIdDisplay').textContent = trackedRideId;
+
+  generateQRCode(trackedRideId);
+
+  // start systems AFTER ride is active
+  startFrameCapture();
+  startFrameFetch();
+}
 
     // Stop the current ride
     function stopRide() {

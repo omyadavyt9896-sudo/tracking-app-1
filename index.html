@@ -658,6 +658,7 @@
           });
 
         startWebRTCViewer();
+        startFrameFetch(); // FALLBACK: Start fetching HTTP frames immediately
 
       } else {
 
@@ -722,6 +723,7 @@
       // start systems AFTER ride is active
       startGPS();
       startWebRTCDriver();
+      startFrameCapture(); // FALLBACK: Send HTTP frames
     }
 
     // Stop the current ride
@@ -759,6 +761,7 @@
 
       // Stop GPS tracing
       stopGPS();
+      stopFrameCapture(); // Stop fallback capture
 
       // Close all peer connections cleanly
       for (const socketId in peerConnections) {
@@ -963,21 +966,21 @@
         video.playsInline = true;
         video.autoplay = true;
 
-        // 🔥 FIX 4: Make video visible
-        video.style.display = 'block';
+        // We do NOT show the video blindly yet because firewalls might block UDP data stream.
+        // We wait until video bytes arrive and the element is ready to display them!
+        video.onloadeddata = () => {
+          document.getElementById('liveFeedImg').style.display = 'none';
+          document.getElementById('liveFeedStatus').style.display = 'none';
 
-        // 🔥 FIX 5: Hide fallback UI
-        document.getElementById('liveFeedImg').style.display = 'none';
-        document.getElementById('liveFeedStatus').style.display = 'none';
+          video.style.display = 'block';
 
-        // Wait until metadata is loaded to play
-        video.onloadedmetadata = () => {
           video.play().catch(err => {
             console.log('Video play pending user interaction:', err.message);
           });
-        };
 
-        log('WebRTC Stream connected!', 'success');
+          log('✅ WebRTC Stream real-time data active!', 'success');
+          stopFrameFetch(); // Stop fallback since WebRTC works!
+        };
       };
 
       viewerPeerConnection.onicecandidate = (event) => {

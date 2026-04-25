@@ -606,58 +606,53 @@
 
     // Initialize modes based on whether it is a viewer or a driver
     function initializeModes() {
-      if (isViewer) {
+  if (isViewer) {
 
-        // Safety check
-        if (!urlRideId) {
-          log("Invalid ride link", "error");
-          alert("Invalid tracking link");
-          return;
+    if (!urlRideId) {
+      log("Invalid ride link", "error");
+      alert("Invalid tracking link");
+      return;
+    }
+
+    trackedRideId = urlRideId;
+
+    document.getElementById('driverControlCard').style.display = 'none';
+    document.getElementById('cameraPreviewCard').style.display = 'none';
+    document.getElementById('shareContainer').style.display = 'none';
+
+    log(`👀 Viewer mode: following ${trackedRideId}`, 'info');
+
+    fetch(`${SERVER_URL}/locations`)
+      .then(res => res.json())
+      .then(data => {
+        vehicleLocations = {};
+
+        if (data[trackedRideId]) {
+          vehicleLocations[trackedRideId] = data[trackedRideId];
         }
 
-        trackedRideId = urlRideId;
+        updateLocationsList();
+        updateStats();
+      })
+      .catch(err => {
+        log(`Error loading initial data: ${err.message}`, 'error');
+      });
 
-        // Hide ALL driver UI
-        document.getElementById('driverControlCard').style.display = 'none';
-        document.getElementById('cameraPreviewCard').style.display = 'none';
+    // ❌ REMOVE FRAME SYSTEM
+    // startFrameFetch();
 
-        // ❌ FIX: hide share button in viewer mode
-        document.getElementById('shareContainer').style.display = 'none';
+    // ✅ ONLY THIS
+    startWebRTCViewer();
 
-        log(`👀 Viewer mode: following ${trackedRideId}`, 'info');
+  } else {
 
-        // Fetch only this ride
-        fetch(`${SERVER_URL}/locations`)
-          .then(res => res.json())
-          .then(data => {
-            vehicleLocations = {};
+    document.getElementById('driverControlCard').style.display = 'block';
+    document.getElementById('cameraPreviewCard').style.display = 'block';
+    document.getElementById('shareContainer').style.display = 'flex';
 
-            if (data[trackedRideId]) {
-              vehicleLocations[trackedRideId] = data[trackedRideId];
-            }
-
-            updateLocationsList();
-            updateStats();
-          })
-          .catch(err => {
-            log(`Error loading initial data: ${err.message}`, 'error');
-          });
-
-        startFrameFetch();
-        startWebRTCViewer();
-
-      } else {
-
-        // Driver Mode
-        document.getElementById('driverControlCard').style.display = 'block';
-        document.getElementById('cameraPreviewCard').style.display = 'block';
-
-        // ✅ Show share only for driver
-        document.getElementById('shareContainer').style.display = 'flex';
-
-        log("🚗 Driver mode ready", "info");
-      }
-    }
+    log("🚗 Driver mode ready", "info");
+  }
+}
     // Start a new ride
     async function startRide() {
       // 🔥 CLEAR OLD RIDES
@@ -822,31 +817,29 @@
 
     // Camera Preview Integration
     async function startCamera() {
-      const videoElement = document.getElementById('cameraFeed');
-      const startBtn = document.getElementById('startCameraBtn');
+  const videoElement = document.getElementById('cameraFeed');
+  const startBtn = document.getElementById('startCameraBtn');
 
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' }
-        });
-        localStream = stream;
-        videoElement.srcObject = stream;
-        videoElement.style.display = 'block';
-        startBtn.textContent = 'Camera Active';
-        startBtn.disabled = true;
-        startBtn.style.opacity = '0.6';
-        startBtn.style.cursor = 'not-allowed';
-        log('Camera started successfully', 'success');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' }
+    });
 
-        // If a ride is already active, start capturing
-        if (trackedRideId) {
-          startFrameCapture();
-        }
-      } catch (err) {
-        log(`Error accessing camera: ${err.message}`, 'error');
-        alert('Could not access camera. Please ensure you have granted camera permissions.');
-      }
-    }
+    localStream = stream;
+    videoElement.srcObject = stream;
+    videoElement.style.display = 'block';
+
+    startBtn.textContent = 'Camera Active';
+    startBtn.disabled = true;
+
+    log('Camera started successfully', 'success');
+
+    // ❌ DO NOT startFrameCapture here anymore
+
+  } catch (err) {
+    log(`Error accessing camera: ${err.message}`, 'error');
+  }
+}
 
     function stopCamera() {
       const videoElement = document.getElementById('cameraFeed');
@@ -961,13 +954,17 @@
       };
 
       viewerPeerConnection.onconnectionstatechange = () => {
-        if (viewerPeerConnection.connectionState === 'disconnected' || viewerPeerConnection.connectionState === 'failed') {
-          document.getElementById('liveFeedVideo').style.display = 'none';
-          document.getElementById('liveFeedStatus').style.display = 'block';
-          document.getElementById('liveFeedStatus').textContent = "Video disconnected, using fallback...";
-          startFrameFetch(); // Restart frame fetch fallback
-        }
-      };
+  if (
+    viewerPeerConnection.connectionState === 'disconnected' ||
+    viewerPeerConnection.connectionState === 'failed'
+  ) {
+    document.getElementById('liveFeedVideo').style.display = 'none';
+    document.getElementById('liveFeedStatus').style.display = 'block';
+    document.getElementById('liveFeedStatus').textContent = "Video disconnected";
+
+    log("WebRTC video disconnected", "error");
+  }
+};
 
       try {
         await viewerPeerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));

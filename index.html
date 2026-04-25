@@ -647,7 +647,10 @@
 }
     // Start a new ride
     async function startRide() {
-      trackedRideId = "ride-" + Date.now();
+        // 🔥 CLEAR OLD RIDES
+        vehicleLocations = {};
+        updateLocationsList();
+        trackedRideId = "ride-" + Date.now();
 
       try {
         const res = await fetch(`${SERVER_URL}/start-ride`, {
@@ -852,10 +855,9 @@
       log('Disconnected from server', 'error');
     });
 
-    socket.on('initialLocations', (locations) => {
+socket.on('initialLocations', (locations) => {
 
-  // 🔥 FILTER FOR VIEWER
-  if (isViewer) {
+  if (trackedRideId  || isViewer ) {
     vehicleLocations = {};
 
     if (locations[trackedRideId]) {
@@ -865,20 +867,21 @@
     vehicleLocations = locations;
   }
 
-  log(`Received initial locations`, 'info');
   updateLocationsList();
   updateStats();
 });
 
-   socket.on('locationUpdate', (location) => {
+socket.on('locationUpdate', (location) => {
 
-  // 🔥 CRITICAL FILTER
+  // Viewer filter
   if (isViewer && location.rideId !== trackedRideId) return;
+
+  // 🔥 Driver filter (IMPORTANT)
+  if (!isViewer && trackedRideId && location.rideId !== trackedRideId) return;
 
   vehicleLocations[location.rideId] = location;
 
   updateCount++;
-
   showLiveIndicator();
   updateLocationsList();
   updateStats();

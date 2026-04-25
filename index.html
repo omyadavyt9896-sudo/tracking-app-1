@@ -703,10 +703,10 @@
       // Automatically start camera if not started
       await startCamera();
       // start systems AFTER ride is active
-      startFrameCapture();
+      //startFrameCapture();
       startGPS();
       startWebRTCDriver();
-      startFrameFetch();
+      //startFrameFetch();
     }
 
     // Stop the current ride
@@ -750,6 +750,18 @@
 
       // Stop fetching live feed
       stopFrameFetch();
+
+      // Close all peer connections cleanly
+      for (const socketId in peerConnections) {
+        if (peerConnections[socketId]) {
+          peerConnections[socketId].close();
+        }
+        delete peerConnections[socketId];
+      }
+      if (viewerPeerConnection) {
+        viewerPeerConnection.close();
+        viewerPeerConnection = null;
+      }
 
       // Cleanly stop local camera to reset UI
       stopCamera();
@@ -872,8 +884,21 @@
     socket.on('webrtc-viewer-joined', async (viewerSocketId) => {
       if (isViewer || !trackedRideId || !localStream) return;
 
+      // Ensure no duplicate connections
+      if (peerConnections[viewerSocketId]) {
+        peerConnections[viewerSocketId].close();
+      }
+
       const pc = new RTCPeerConnection(ICE_SERVERS);
       peerConnections[viewerSocketId] = pc;
+
+      // Handle viewer disconnect cleanup
+      pc.onconnectionstatechange = () => {
+        if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+          pc.close();
+          delete peerConnections[viewerSocketId];
+        }
+      };
 
       localStream.getTracks().forEach(track => {
         pc.addTrack(track, localStream);
@@ -906,6 +931,11 @@
     socket.on('webrtc-offer', async (data) => {
       if (!isViewer || data.rideId !== trackedRideId) return;
 
+      // Clean up existing connection
+      if (viewerPeerConnection) {
+        viewerPeerConnection.close();
+      }
+
       viewerPeerConnection = new RTCPeerConnection(ICE_SERVERS);
 
       viewerPeerConnection.ontrack = (event) => {
@@ -916,6 +946,7 @@
           document.getElementById('liveFeedImg').style.display = 'none';
           document.getElementById('liveFeedStatus').style.display = 'none';
           log('WebRTC Stream connected!', 'success');
+          stopFrameFetch(); // Stop fallback conflict
         }
       };
 
@@ -934,6 +965,7 @@
           document.getElementById('liveFeedVideo').style.display = 'none';
           document.getElementById('liveFeedStatus').style.display = 'block';
           document.getElementById('liveFeedStatus').textContent = "Video disconnected, using fallback...";
+          startFrameFetch(); // Restart frame fetch fallback
         }
       };
 

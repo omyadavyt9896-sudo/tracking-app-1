@@ -603,8 +603,7 @@
     }
     // Start a new ride
     async function startRide() {
-  trackedRideId = "ride-001";
-
+  trackedRideId = "ride-" + Date.now();
   try {
     const res = await fetch(`${SERVER_URL}/start-ride`, {
       method: 'POST',

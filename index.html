@@ -458,6 +458,8 @@
         style="text-align: center; background: #000; border-radius: 8px; padding: 10px; min-height: 200px; display: flex; align-items: center; justify-content: center;">
         <span id="liveFeedStatus" style="color: #999;">Waiting for camera...</span>
         <img id="liveFeedImg" style="max-width: 100%; border-radius: 4px; display: none;" />
+        <video id="liveFeedVideo" autoplay playsinline muted
+          style="max-width: 100%; border-radius: 4px; display: none; background-color: #000;"></video>
       </div>
     </div>
 
@@ -486,6 +488,16 @@
     let fetchFrameInterval = null;
     let gpsWatchId = null;
     let liveIndicatorTimeout = null;
+    let localStream = null;
+    const peerConnections = {};
+    let viewerPeerConnection = null;
+
+    const ICE_SERVERS = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]
+    };
 
     function showLiveIndicator() {
       const indicator = document.getElementById('liveIndicator');
@@ -532,7 +544,7 @@
         } catch (err) {
           console.error('Error uploading frame:', err);
         }
-      }, 500);
+      }, 1500);
     }
 
     function stopFrameCapture() {
@@ -572,7 +584,7 @@
         } catch (err) {
           // Silent catch to avoid console spam
         }
-      }, 500);
+      }, 1500);
     }
 
     function stopFrameFetch() {
@@ -594,63 +606,64 @@
 
     // Initialize modes based on whether it is a viewer or a driver
     function initializeModes() {
-  if (isViewer) {
+      if (isViewer) {
 
-    // Safety check
-    if (!urlRideId) {
-      log("Invalid ride link", "error");
-      alert("Invalid tracking link");
-      return;
-    }
-
-    trackedRideId = urlRideId;
-
-    // Hide ALL driver UI
-    document.getElementById('driverControlCard').style.display = 'none';
-    document.getElementById('cameraPreviewCard').style.display = 'none';
-
-    // ❌ FIX: hide share button in viewer mode
-    document.getElementById('shareContainer').style.display = 'none';
-
-    log(`👀 Viewer mode: following ${trackedRideId}`, 'info');
-
-    // Fetch only this ride
-    fetch(`${SERVER_URL}/locations`)
-      .then(res => res.json())
-      .then(data => {
-        vehicleLocations = {};
-
-        if (data[trackedRideId]) {
-          vehicleLocations[trackedRideId] = data[trackedRideId];
+        // Safety check
+        if (!urlRideId) {
+          log("Invalid ride link", "error");
+          alert("Invalid tracking link");
+          return;
         }
 
-        updateLocationsList();
-        updateStats();
-      })
-      .catch(err => {
-        log(`Error loading initial data: ${err.message}`, 'error');
-      });
+        trackedRideId = urlRideId;
 
-    startFrameFetch();
+        // Hide ALL driver UI
+        document.getElementById('driverControlCard').style.display = 'none';
+        document.getElementById('cameraPreviewCard').style.display = 'none';
 
-  } else {
+        // ❌ FIX: hide share button in viewer mode
+        document.getElementById('shareContainer').style.display = 'none';
 
-    // Driver Mode
-    document.getElementById('driverControlCard').style.display = 'block';
-    document.getElementById('cameraPreviewCard').style.display = 'block';
+        log(`👀 Viewer mode: following ${trackedRideId}`, 'info');
 
-    // ✅ Show share only for driver
-    document.getElementById('shareContainer').style.display = 'flex';
+        // Fetch only this ride
+        fetch(`${SERVER_URL}/locations`)
+          .then(res => res.json())
+          .then(data => {
+            vehicleLocations = {};
 
-    log("🚗 Driver mode ready", "info");
-  }
-}
+            if (data[trackedRideId]) {
+              vehicleLocations[trackedRideId] = data[trackedRideId];
+            }
+
+            updateLocationsList();
+            updateStats();
+          })
+          .catch(err => {
+            log(`Error loading initial data: ${err.message}`, 'error');
+          });
+
+        startFrameFetch();
+        startWebRTCViewer();
+
+      } else {
+
+        // Driver Mode
+        document.getElementById('driverControlCard').style.display = 'block';
+        document.getElementById('cameraPreviewCard').style.display = 'block';
+
+        // ✅ Show share only for driver
+        document.getElementById('shareContainer').style.display = 'flex';
+
+        log("🚗 Driver mode ready", "info");
+      }
+    }
     // Start a new ride
     async function startRide() {
-        // 🔥 CLEAR OLD RIDES
-        vehicleLocations = {};
-        updateLocationsList();
-        trackedRideId = "ride-" + Date.now();
+      // 🔥 CLEAR OLD RIDES
+      vehicleLocations = {};
+      updateLocationsList();
+      trackedRideId = "ride-" + Date.now();
 
       try {
         const res = await fetch(`${SERVER_URL}/start-ride`, {
@@ -692,6 +705,7 @@
       // start systems AFTER ride is active
       startFrameCapture();
       startGPS();
+      startWebRTCDriver();
       startFrameFetch();
     }
 
@@ -803,6 +817,7 @@
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'environment' }
         });
+        localStream = stream;
         videoElement.srcObject = stream;
         videoElement.style.display = 'block';
         startBtn.textContent = 'Camera Active';
@@ -827,6 +842,7 @@
       if (videoElement && videoElement.srcObject) {
         videoElement.srcObject.getTracks().forEach(track => track.stop());
         videoElement.srcObject = null;
+        localStream = null;
       }
       if (videoElement) {
         videoElement.style.display = 'none';
@@ -839,8 +855,125 @@
       }
     }
 
+    // WebRTC logic
+    function startWebRTCDriver() {
+      socket.emit('webrtc-driver-join', trackedRideId);
+    }
+
+    function startWebRTCViewer() {
+      document.getElementById('liveFeedStatus').textContent = "Connecting video...";
+      socket.emit('webrtc-join', trackedRideId);
+    }
+
     // Initialize Socket.io connection
     const socket = io(SERVER_URL);
+
+    // WebRTC Socket Hooks
+    socket.on('webrtc-viewer-joined', async (viewerSocketId) => {
+      if (isViewer || !trackedRideId || !localStream) return;
+
+      const pc = new RTCPeerConnection(ICE_SERVERS);
+      peerConnections[viewerSocketId] = pc;
+
+      localStream.getTracks().forEach(track => {
+        pc.addTrack(track, localStream);
+      });
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('webrtc-ice-candidate', {
+            rideId: trackedRideId,
+            candidate: event.candidate,
+            to: viewerSocketId
+          });
+        }
+      };
+
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('webrtc-offer', {
+          rideId: trackedRideId,
+          offer: offer,
+          to: viewerSocketId,
+          from: socket.id
+        });
+      } catch (err) {
+        log('WebRTC driver error: ' + err.message, 'error');
+      }
+    });
+
+    socket.on('webrtc-offer', async (data) => {
+      if (!isViewer || data.rideId !== trackedRideId) return;
+
+      viewerPeerConnection = new RTCPeerConnection(ICE_SERVERS);
+
+      viewerPeerConnection.ontrack = (event) => {
+        const video = document.getElementById('liveFeedVideo');
+        if (video) {
+          video.srcObject = event.streams[0];
+          video.style.display = 'block';
+          document.getElementById('liveFeedImg').style.display = 'none';
+          document.getElementById('liveFeedStatus').style.display = 'none';
+          log('WebRTC Stream connected!', 'success');
+        }
+      };
+
+      viewerPeerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('webrtc-ice-candidate', {
+            rideId: trackedRideId,
+            candidate: event.candidate,
+            to: data.from
+          });
+        }
+      };
+
+      viewerPeerConnection.onconnectionstatechange = () => {
+        if (viewerPeerConnection.connectionState === 'disconnected' || viewerPeerConnection.connectionState === 'failed') {
+          document.getElementById('liveFeedVideo').style.display = 'none';
+          document.getElementById('liveFeedStatus').style.display = 'block';
+          document.getElementById('liveFeedStatus').textContent = "Video disconnected, using fallback...";
+        }
+      };
+
+      try {
+        await viewerPeerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+        const answer = await viewerPeerConnection.createAnswer();
+        await viewerPeerConnection.setLocalDescription(answer);
+
+        socket.emit('webrtc-answer', {
+          rideId: trackedRideId,
+          answer: answer,
+          to: data.from
+        });
+      } catch (err) {
+        log('WebRTC viewer error: ' + err.message, 'error');
+      }
+    });
+
+    socket.on('webrtc-answer', async (data) => {
+      if (isViewer || !trackedRideId) return;
+      const pc = peerConnections[data.from];
+      if (pc) {
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        } catch (e) {
+          log('WebRTC driver answer error: ' + e.message, 'error');
+        }
+      }
+    });
+
+    socket.on('webrtc-ice-candidate', async (data) => {
+      const pc = isViewer ? viewerPeerConnection : peerConnections[data.from];
+      if (pc && data.candidate) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } catch (e) {
+          // ignore
+        }
+      }
+    });
 
     // Socket.io event handlers
     socket.on('connect', () => {
@@ -855,154 +988,154 @@
       log('Disconnected from server', 'error');
     });
 
-socket.on('initialLocations', (locations) => {
+    socket.on('initialLocations', (locations) => {
 
-  if (trackedRideId  || isViewer ) {
-    vehicleLocations = {};
+      if (trackedRideId || isViewer) {
+        vehicleLocations = {};
 
-    if (locations[trackedRideId]) {
-      vehicleLocations[trackedRideId] = locations[trackedRideId];
-    }
-  } else {
-    vehicleLocations = locations;
-  }
+        if (locations[trackedRideId]) {
+          vehicleLocations[trackedRideId] = locations[trackedRideId];
+        }
+      } else {
+        vehicleLocations = locations;
+      }
 
-  updateLocationsList();
-  updateStats();
-});
+      updateLocationsList();
+      updateStats();
+    });
 
-socket.on('locationUpdate', (location) => {
+    socket.on('locationUpdate', (location) => {
 
-  // Viewer filter
-  if (isViewer && location.rideId !== trackedRideId) return;
+      // Viewer filter
+      if (isViewer && location.rideId !== trackedRideId) return;
 
-  // 🔥 Driver filter (IMPORTANT)
-  if (!isViewer && trackedRideId && location.rideId !== trackedRideId) return;
+      // 🔥 Driver filter (IMPORTANT)
+      if (!isViewer && trackedRideId && location.rideId !== trackedRideId) return;
 
-  vehicleLocations[location.rideId] = location;
+      vehicleLocations[location.rideId] = location;
 
-  updateCount++;
-  showLiveIndicator();
-  updateLocationsList();
-  updateStats();
+      updateCount++;
+      showLiveIndicator();
+      updateLocationsList();
+      updateStats();
 
-  document.getElementById('updateCount').textContent =
-    `Updates received: ${updateCount}`;
-});
+      document.getElementById('updateCount').textContent =
+        `Updates received: ${updateCount}`;
+    });
 
     socket.on('error', (error) => {
       log(`Socket error: ${error}`, 'error');
     });
 
     // Start real GPS tracking
-   function startGPS() {
-  if (gpsWatchId) return;
+    function startGPS() {
+      if (gpsWatchId) return;
 
-  if (!navigator.geolocation) {
-    log('Geolocation not supported', 'error');
-    return;
-  }
-
-  let lastLat = null;
-  let lastLng = null;
-  let lastSentTime = 0;
-
-  // 🔥 STEP 1: SEND FIRST LOCATION INSTANTLY
-  navigator.geolocation.getCurrentPosition(
-    async (position) => {
-      if (!trackedRideId) return;
-
-      const lat = position.coords.latitude;
-      const lng = position.coords.longitude;
-
-      try {
-        await fetch(`${SERVER_URL}/location`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rideId: trackedRideId, lat, lng })
-        });
-
-        log("📍 First location sent instantly", "success");
-
-        // 🔥 Important: set initial values
-        lastLat = lat;
-        lastLng = lng;
-        lastSentTime = Date.now();
-
-      } catch (err) {
-        log(`Error sending first location: ${err.message}`, 'error');
-      }
-    },
-    (error) => {
-      log(`Initial GPS error: ${error.message}`, 'error');
-    }
-  );
-
-  // 🔥 STEP 2: CONTINUOUS TRACKING (your existing code)
-  gpsWatchId = navigator.geolocation.watchPosition(
-    async (position) => {
-      if (!trackedRideId) return;
-
-      const lat = position.coords.latitude;
-      const lng = position.coords.longitude;
-      const now = Date.now();
-
-      // Skip small movement
-      if (
-        lastLat &&
-        Math.abs(lat - lastLat) < 0.0001 &&
-        Math.abs(lng - lastLng) < 0.0001
-      ) {
+      if (!navigator.geolocation) {
+        log('Geolocation not supported', 'error');
         return;
       }
 
-      // Throttle
-      if (now - lastSentTime < 3000) return;
+      let lastLat = null;
+      let lastLng = null;
+      let lastSentTime = 0;
 
-      lastLat = lat;
-      lastLng = lng;
-      lastSentTime = now;
+      // 🔥 STEP 1: SEND FIRST LOCATION INSTANTLY
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          if (!trackedRideId) return;
 
-      try {
-        await fetch(`${SERVER_URL}/location`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rideId: trackedRideId, lat, lng })
-        });
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
 
-      } catch (err) {
-        log(`Error sending location: ${err.message}`, 'error');
-      }
-    },
+          try {
+            await fetch(`${SERVER_URL}/location`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ rideId: trackedRideId, lat, lng })
+            });
 
-    (error) => {
-      let message = "Location error";
+            log("📍 First location sent instantly", "success");
 
-      switch (error.code) {
-        case error.PERMISSION_DENIED:
-          message = "❌ Location permission denied";
-          alert("Please allow location access to start tracking");
-          break;
-        case error.POSITION_UNAVAILABLE:
-          message = "❌ Location unavailable";
-          break;
-        case error.TIMEOUT:
-          message = "❌ Location request timeout";
-          break;
-      }
+            // 🔥 Important: set initial values
+            lastLat = lat;
+            lastLng = lng;
+            lastSentTime = Date.now();
 
-      log(message, 'error');
-    },
+          } catch (err) {
+            log(`Error sending first location: ${err.message}`, 'error');
+          }
+        },
+        (error) => {
+          log(`Initial GPS error: ${error.message}`, 'error');
+        }
+      );
 
-    {
-      enableHighAccuracy: true,
-      maximumAge: 5000,
-      timeout: 10000
+      // 🔥 STEP 2: CONTINUOUS TRACKING (your existing code)
+      gpsWatchId = navigator.geolocation.watchPosition(
+        async (position) => {
+          if (!trackedRideId) return;
+
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          const now = Date.now();
+
+          // Skip small movement
+          if (
+            lastLat &&
+            Math.abs(lat - lastLat) < 0.0001 &&
+            Math.abs(lng - lastLng) < 0.0001
+          ) {
+            return;
+          }
+
+          // Throttle
+          if (now - lastSentTime < 3000) return;
+
+          lastLat = lat;
+          lastLng = lng;
+          lastSentTime = now;
+
+          try {
+            await fetch(`${SERVER_URL}/location`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ rideId: trackedRideId, lat, lng })
+            });
+
+          } catch (err) {
+            log(`Error sending location: ${err.message}`, 'error');
+          }
+        },
+
+        (error) => {
+          let message = "Location error";
+
+          switch (error.code) {
+            case error.PERMISSION_DENIED:
+              message = "❌ Location permission denied";
+              alert("Please allow location access to start tracking");
+              break;
+            case error.POSITION_UNAVAILABLE:
+              message = "❌ Location unavailable";
+              break;
+            case error.TIMEOUT:
+              message = "❌ Location request timeout";
+              break;
+          }
+
+          log(message, 'error');
+        },
+
+        {
+          enableHighAccuracy: true,
+          maximumAge: 5000,
+          timeout: 10000
+        }
+      );
+
+      log('📍 GPS tracking started (optimized)', 'success');
     }
-  );
-
-  log('📍 GPS tracking started (optimized)', 'success');
-}
     function stopGPS() {
       if (gpsWatchId) {
         navigator.geolocation.clearWatch(gpsWatchId);
@@ -1027,25 +1160,25 @@ socket.on('locationUpdate', (location) => {
 
     // Update locations list display
     // Update locations list display
-function updateLocationsList() {
-  const container = document.getElementById('locationsList');
-  const locations = Object.values(vehicleLocations);
+    function updateLocationsList() {
+      const container = document.getElementById('locationsList');
+      const locations = Object.values(vehicleLocations);
 
-  if (locations.length === 0) {
-    container.innerHTML = '<div class="empty-message">No locations tracked yet</div>';
-    return;
-  }
+      if (locations.length === 0) {
+        container.innerHTML = '<div class="empty-message">No locations tracked yet</div>';
+        return;
+      }
 
-  container.innerHTML = locations.map(loc => {
+      container.innerHTML = locations.map(loc => {
 
-    // 🔥 CALCULATE TIME DIFFERENCE
-    const secondsAgo = Math.floor((Date.now() - new Date(loc.timestamp)) / 1000);
+        // 🔥 CALCULATE TIME DIFFERENCE
+        const secondsAgo = Math.floor((Date.now() - new Date(loc.timestamp)) / 1000);
 
-    // 🔥 STATUS LOGIC
-    let status = "🟢 Live";
-    if (secondsAgo > 10) status = "🟡 Stationary";
+        // 🔥 STATUS LOGIC
+        let status = "🟢 Live";
+        if (secondsAgo > 10) status = "🟡 Stationary";
 
-    return `
+        return `
       <div class="location-item">
         <div class="location-id">🚗 ${loc.rideId}</div>
         <div class="location-coords">
@@ -1056,10 +1189,10 @@ function updateLocationsList() {
         </div>
       </div>
     `;
-  }).join('');
+      }).join('');
 
-  document.getElementById('vehicleCount').textContent = `Vehicles tracked: ${locations.length}`;
-}
+      document.getElementById('vehicleCount').textContent = `Vehicles tracked: ${locations.length}`;
+    }
 
     // Update statistics
     function updateStats() {

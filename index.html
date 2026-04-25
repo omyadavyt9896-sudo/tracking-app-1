@@ -971,7 +971,6 @@
       viewerPeerConnection.onicecandidate = (event) => {
         if (event.candidate) {
           socket.emit('webrtc-ice-candidate', {
-            rideId: trackedRideId,
             candidate: event.candidate,
             to: data.to
           });
@@ -993,7 +992,6 @@
         await viewerPeerConnection.setLocalDescription(answer);
 
         socket.emit('webrtc-answer', {
-          rideId: trackedRideId,
           answer: answer,
           to: data.to
         });
